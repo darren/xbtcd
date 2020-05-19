@@ -741,11 +741,20 @@ func createVoutList(mtx *wire.MsgTx, chainParams *chaincfg.Params, filterAddrMap
 
 // createTxRawResult converts the passed transaction and associated parameters
 // to a raw transaction JSON object.
-func createTxRawResult(chainParams *chaincfg.Params, mtx *wire.MsgTx,
+func createTxRawResult(s *rpcServer, chainParams *chaincfg.Params, mtx *wire.MsgTx,
 	txHash string, blkHeader *wire.BlockHeader, blkHash string,
 	blkHeight int32, chainHeight int32) (*btcjson.TxRawResult, error) {
 
 	mtxHex, err := messageToHex(mtx)
+	if err != nil {
+		return nil, err
+	}
+
+	params := s.cfg.ChainParams
+	filterAddrMap := make(map[string]struct{})
+	vinExtra := true
+
+	vin, err := createVinListPrevOut(s, mtx, params, vinExtra, filterAddrMap)
 	if err != nil {
 		return nil, err
 	}
@@ -757,7 +766,7 @@ func createTxRawResult(chainParams *chaincfg.Params, mtx *wire.MsgTx,
 		Size:     int32(mtx.SerializeSize()),
 		Vsize:    int32(mempool.GetTxVirtualSize(btcutil.NewTx(mtx))),
 		Weight:   int32(blockchain.GetTransactionWeight(btcutil.NewTx(mtx))),
-		Vin:      createVinList(mtx),
+		Vin:      vin,
 		Vout:     createVoutList(mtx, chainParams, nil),
 		Version:  mtx.Version,
 		LockTime: mtx.LockTime,
@@ -1147,7 +1156,7 @@ func handleGetBlock(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (i
 		txns := blk.Transactions()
 		rawTxns := make([]btcjson.TxRawResult, len(txns))
 		for i, tx := range txns {
-			rawTxn, err := createTxRawResult(params, tx.MsgTx(),
+			rawTxn, err := createTxRawResult(s, params, tx.MsgTx(),
 				tx.Hash().String(), blockHeader, hash.String(),
 				blockHeight, best.Height)
 			if err != nil {
@@ -2646,7 +2655,7 @@ func handleGetRawTransaction(s *rpcServer, cmd interface{}, closeChan <-chan str
 		chainHeight = s.cfg.Chain.BestSnapshot().Height
 	}
 
-	rawTxn, err := createTxRawResult(s.cfg.ChainParams, mtx, txHash.String(),
+	rawTxn, err := createTxRawResult(s, s.cfg.ChainParams, mtx, txHash.String(),
 		blkHeader, blkHashStr, blkHeight, chainHeight)
 	if err != nil {
 		return nil, err
